@@ -5,7 +5,7 @@ import { type Component, Text } from "@earendil-works/pi-tui";
 import { COMPACT, compactRenderers, installSpacingPatch } from "../src/render.ts";
 
 // A theme with one real ANSI color per token, so width handling sees zero-width escapes.
-const CODES: Record<string, number> = { dim: 101, success: 102, error: 103, warning: 104, muted: 105 };
+const CODES: Record<string, number> = { dim: 101, success: 102, error: 103, warning: 104, muted: 105, text: 106 };
 const esc = (c: string) => `\x1b[38;5;${CODES[c] ?? 199}m`;
 const theme = {
   fg: (c: string, s: string) => `${esc(c)}${s}\x1b[39m`,
@@ -42,35 +42,38 @@ function draw(r: ToolRenderers, args: unknown, result: { content: unknown[]; det
   return [...call.render(width), ...(res?.render(width) ?? [])];
 }
 
-test("collapsed: one line, dimmed on success, counts colored", () => {
+test("collapsed: one indented line colored by role, mark and duration right-aligned", () => {
   const r = compactRenderers("edit", () => undefined);
   assert.equal(r.renderShell, "self");
   assert.equal((r as Record<symbol, unknown>)[COMPACT], true);
-  const lines = draw(r, { path: "/p/a.ts" }, { content: [{ type: "text", text: "ok" }], details: { diff: "+1 a\n-1 b" } }, ctx());
+  const lines = draw(r, { path: "/p/a.ts" }, { content: [{ type: "text", text: "ok" }], details: { diff: "+1 a\n-1 b" } }, ctx({ durationMs: 2000 }));
   assert.equal(lines.length, 1);
-  assert.equal(plain(lines[0]), " edit   a.ts  +1 −1");
-  assert.ok(lines[0].includes(colored("dim", "edit   ")));
+  assert.equal(plain(lines[0]), `   edit   a.ts  +1 −1${" ".repeat(53)}2.0s ✓`);
+  assert.ok(lines[0].includes(colored("muted", "edit   ")));
+  assert.ok(lines[0].includes(colored("text", "a.ts")));
   assert.ok(lines[0].includes(colored("success", "+1")));
   assert.ok(lines[0].includes(colored("error", "−1")));
+  assert.ok(lines[0].includes(colored("muted", "2.0s ")));
+  assert.ok(lines[0].endsWith(colored("success", "✓")));
 });
 
-test("collapsed: failure red, running yellow", () => {
+test("collapsed: failure text and mark red, running mark yellow", () => {
   const r = compactRenderers("bash", () => undefined);
   const failed = draw(r, { command: "make" }, { content: [{ type: "text", text: "boom\n\nCommand exited with code 2" }] }, ctx({ isError: true }));
   assert.equal(failed.length, 1);
-  assert.ok(failed[0].includes(esc("error")));
-  assert.ok(!failed[0].includes(esc("dim")));
-  assert.equal(plain(failed[0]), " run    make  ✗ exit 2 · boom");
+  assert.equal(plain(failed[0]).replace(/ {2,}/g, "  "), "  run  make  exit 2 · boom  ✗");
+  assert.ok(failed[0].includes(colored("error", "exit 2 · boom")));
+  assert.ok(failed[0].endsWith(colored("error", "✗")));
   const r2 = compactRenderers("bash", () => undefined);
   const running = draw(r2, { command: "make" }, undefined, ctx({ isPartial: true }));
-  assert.ok(running[0].includes(esc("warning")));
+  assert.ok(running[0].endsWith(colored("warning", "◌")));
 });
 
 test("collapsed line is cut to the width", () => {
   const r = compactRenderers("bash", () => undefined);
-  const [l] = draw(r, { command: "x ".repeat(100) }, { content: [{ type: "text", text: "ok" }] }, ctx({ durationMs: 1000 }), 40);
-  assert.ok(plain(l).length <= 40, plain(l));
-  assert.ok(plain(l).endsWith("✓ 1.0s"));
+  const [l] = draw(r, { command: "x ".repeat(100) }, { content: [{ type: "text", text: "ok" }] }, ctx({ durationMs: 1000 }), 50);
+  assert.ok(plain(l).length <= 50, plain(l));
+  assert.ok(plain(l).endsWith("1.0s ✓"));
 });
 
 test("expanded: delegates to next() and frames default-shell renderers", () => {

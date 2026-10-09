@@ -12,6 +12,8 @@ export interface Summary {
   target: string;
   result: Seg[];
   status: Status;
+  /** Formatted duration, drawn right-aligned next to the status mark. */
+  duration?: string;
 }
 /** What a renderer receives as a result: `{ content, details }`. Anything else is tolerated. */
 export interface ResultLike {
@@ -117,12 +119,13 @@ function lines(text: string): string[] {
   return out;
 }
 
-const OK: Seg = { text: "✓" };
-const withDuration = (segs: Seg[], info: Info, minMs = 0): Seg[] => {
+/** Durations shorter than this are noise and are not shown. */
+export const MIN_DURATION_MS = 1000;
+const durationOf = (info: Info): string | undefined => {
   const d = num(info.durationMs);
-  return d !== undefined && d >= minMs ? [...segs, { text: ` ${formatDuration(d)}`, style: "muted" }] : segs;
+  return d !== undefined && d >= MIN_DURATION_MS ? formatDuration(d) : undefined;
 };
-const failure = (msg: string): Seg[] => [{ text: msg ? `✗ ${msg}` : "✗" }];
+const failure = (msg: string): Seg[] => (msg ? [{ text: msg }] : []);
 
 function finished(result: ResultLike | undefined, info: Info): boolean {
   return result !== undefined && !info.isPartial;
@@ -196,7 +199,7 @@ export function genericSummary(toolName: string, args: unknown, result: ResultLi
     verb: oneLine(toolName) || "tool",
     target: firstArg(args, info),
     status,
-    result: status === "running" ? [] : status === "error" ? failure(errorText(result)) : withDuration([OK], info, 1000),
+    result: status === "error" ? failure(errorText(result)) : [],
   };
 }
 
@@ -333,7 +336,7 @@ export function editSummary(args: unknown, result: ResultLike | undefined, info:
     return { verb: "edit", target: argTarget, result: counts(c.added, c.removed), status };
   }
   if (!argTarget) return unexpected("edit result");
-  return { verb: "edit", target: argTarget, result: [OK], status };
+  return { verb: "edit", target: argTarget, result: [], status };
 }
 
 export function writeSummary(args: unknown, result: ResultLike | undefined, info: Info): Summary {
@@ -343,16 +346,22 @@ export function writeSummary(args: unknown, result: ResultLike | undefined, info
   const status = baseStatus(result, info);
   const target = displayPath(path, info);
   if (status === "error") return { verb: "write", target, result: failure(errorText(result)), status };
-  const size = content !== undefined ? [{ text: `(${plural(lines(content).length, "line")})` }] : status === "ok" ? [OK] : [];
+  const size = content !== undefined ? [{ text: `(${plural(lines(content).length, "line")})` }] : [];
   return { verb: "write", target, result: size, status };
 }
 
 // ---------------------------------------------------------------- run (bash)
 
-/** First line of a command; a heredoc is cut to `cmd <<…`, further lines become ` …`. */
+/** A leading `cd <dir> &&` (or `;`): the agent's habit, repeated on every call. */
+const CD_PREFIX = /^cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*(?:&&|;)\s*(?=\S)/;
+
+/**
+ * First line of a command without a leading `cd <dir> &&`; a heredoc is cut to `cmd <<…`, further
+ * lines become ` …`.
+ */
 export function shortCommand(command: string): string {
   const all = command.replace(/\r/g, "").trim().split("\n");
-  const first = all[0] ?? "";
+  const first = (all[0] ?? "").replace(CD_PREFIX, "");
   const heredoc = first.search(/<<-?\s*['"]?[A-Za-z_][\w.-]*['"]?/);
   if (heredoc !== -1) return `${oneLine(first.slice(0, heredoc))} <<…`;
   const rest = all.slice(1).some((l) => l.trim());
@@ -396,9 +405,9 @@ export function runSummary(args: unknown, result: ResultLike | undefined, info: 
   if (status === "running") return { verb: "run", target, result: [], status };
   if (status === "error") {
     const f = bashFailure(textOf(result));
-    return { verb: "run", target, result: [{ text: `✗ ${f.reason}${f.line ? ` · ${f.line}` : ""}` }], status };
+    return { verb: "run", target, result: [{ text: `${f.reason}${f.line ? ` · ${f.line}` : ""}` }], status };
   }
-  return { verb: "run", target, result: withDuration([OK], info), status };
+  return { verb: "run", target, result: [], status };
 }
 
 // ---------------------------------------------------------------- find (grep / find / ls)
@@ -486,18 +495,18 @@ export function webSummary(toolName: string, args: unknown, result: ResultLike |
     return { verb: "web", target, result: phase ? [{ text: oneLine(phase), style: "muted" }] : [], status };
   }
   if (status === "error") return { verb: "web", target, result: failure(errorText(result)), status };
-  let res: Seg[] = [OK];
+  let res: Seg[] = [];
   const total = num(d.totalResults);
   const urlCount = num(d.urlCount);
-  if (toolName === "web_search" && total !== undefined) res = [{ text: `· ${plural(total, "result")}` }];
+  if (toolName === "web_search" && total !== undefined) res = [{ text: plural(total, "result") }];
   else if (toolName === "fetch_content" && urlCount !== undefined) {
     const title = str(d.title);
     res =
       urlCount === 1 && title
-        ? [{ text: `· ${quoted(title)}` }]
-        : [{ text: `· ${num(d.successful) ?? 0}/${urlCount} URLs` }];
+        ? [{ text: quoted(title) }]
+        : [{ text: `${num(d.successful) ?? 0}/${urlCount} URLs` }];
   }
-  return { verb: "web", target, result: withDuration(res, info, 1000), status };
+  return { verb: "web", target, result: res, status };
 }
 
 // ---------------------------------------------------------------- mcp
@@ -510,7 +519,7 @@ export function mcpSummary(toolName: string, args: unknown, result: ResultLike |
     verb: "mcp",
     target: `${m[1]}.${m[2]}${arg ? ` ${arg}` : ""}`,
     status,
-    result: status === "running" ? [] : status === "error" ? failure(errorText(result)) : withDuration([OK], info, 1000),
+    result: status === "error" ? failure(errorText(result)) : [],
   };
 }
 
@@ -536,15 +545,23 @@ export function actorSummary(toolName: "spawn" | "send" | "stop", args: unknown,
   if (status === "running") return { verb: toolName, target, result: [], status };
   if (status === "error") return { verb: toolName, target, result: failure(errorText(result)), status };
   const started = toolName === "spawn" ? textOf(result).match(/^Started (\S+?)\.?(\s|$)/) : null;
-  return { verb: toolName, target, result: started ? [OK, { text: ` ${started[1]}`, style: "muted" }] : [OK], status };
+  return { verb: toolName, target, result: started ? [{ text: started[1] }] : [], status };
 }
 
 // ---------------------------------------------------------------- dispatch
 
 const WEB = new Set(["web_search", "fetch_content", "get_search_content", "source_check"]);
 
-/** Summary for any tool call. Never throws: unexpected shapes fall back to the generic line. */
+/**
+ * Summary for any tool call, with its duration when it succeeded. Never throws: unexpected shapes
+ * fall back to the generic line.
+ */
 export function summarize(toolName: string, args: unknown, result: ResultLike | undefined, info: Info): Summary {
+  const s = summarizeCall(toolName, args, result, info);
+  return s.status === "ok" ? { ...s, duration: durationOf(info) } : s;
+}
+
+function summarizeCall(toolName: string, args: unknown, result: ResultLike | undefined, info: Info): Summary {
   try {
     switch (toolName) {
       case "read":
@@ -597,30 +614,53 @@ export function fit(s: string, max: number, width: WidthFn = plainWidth): string
   return `${out}…`;
 }
 
+/**
+ * Status mark, always the last column: done, failed, still running. Running is not `…`, which marks
+ * cut text; `◌` is narrow (not East Asian ambiguous width), so the column stays aligned.
+ */
+export const MARK: Record<Status, string> = { ok: "✓", error: "✗", running: "◌" };
+/** Rows wider than this keep their right column here, so it stays near the text it belongs to. */
+export const MAX_ROW = 100;
+
 export interface Laid {
   verb: string;
   target: string;
   /** Gap before the result, empty when there is none. */
   gap: string;
   result: Seg[];
+  /** Spaces that push the right column to the edge. */
+  pad: string;
+  /** Duration before the mark, empty when there is none or no room. */
+  duration: string;
+  mark: string;
 }
 
 const MIN_TARGET = 24;
+/** Narrower rows drop the duration and keep the mark. */
+const MIN_DURATION_ROW = 40;
 
 /**
- * Fit a summary into `width` columns: verb padded to a fixed column, the target shortened first so
- * the result stays visible, then the result cut at the end.
+ * Fit a summary into `width` columns (at most MAX_ROW): verb padded to a fixed column, then the
+ * target and result; the duration and status mark right-aligned at the end. The target is shortened
+ * first so the result stays visible, then the result is cut at its end.
  */
 export function layout(s: Summary, width: number, w: WidthFn = plainWidth): Laid {
+  const row = Math.max(0, Math.min(width, MAX_ROW));
+  const mark = MARK[s.status];
+  const markWidth = w(mark);
+  const duration = s.duration && row >= MIN_DURATION_ROW ? `${s.duration} ` : "";
+  const right = w(duration) + markWidth;
+  // Room left of the right column, which keeps at least one space before it.
+  const avail = row - right - 1;
   const verb = s.verb.length >= VERB_WIDTH ? `${s.verb} ` : s.verb.padEnd(VERB_WIDTH + 1);
   const result = s.result.filter((seg) => seg.text);
   const resultWidth = result.reduce((n, seg) => n + w(seg.text), 0);
   const gap = result.length && s.target ? "  " : "";
-  const room = width - w(verb) - w(gap) - resultWidth;
+  const room = avail - w(verb) - w(gap) - resultWidth;
   const targetWidth = w(s.target);
-  const target = fit(s.target, Math.max(room, Math.min(targetWidth, MIN_TARGET)), w);
+  const target = fit(s.target, Math.max(0, Math.min(Math.max(room, Math.min(targetWidth, MIN_TARGET)), avail - w(verb))), w);
   // Whatever is left goes to the result, cut at its end.
-  let left = Math.max(0, width - w(verb) - w(target) - w(gap));
+  let left = Math.max(0, avail - w(verb) - w(target) - w(gap));
   const cut: Seg[] = [];
   for (const seg of result) {
     if (left <= 0) break;
@@ -628,11 +668,16 @@ export function layout(s: Summary, width: number, w: WidthFn = plainWidth): Laid
     cut.push({ ...seg, text });
     left -= w(text);
   }
-  return { verb, target, gap: cut.length ? gap : "", result: cut };
+  const used = w(verb) + w(target) + (cut.length ? w(gap) : 0) + cut.reduce((n, seg) => n + w(seg.text), 0);
+  return { verb, target, gap: cut.length ? gap : "", result: cut, pad: " ".repeat(Math.max(1, row - used - right)), duration, mark };
 }
 
-/** Plain-text line (tests and fallbacks). */
-export function plainLine(s: Summary, width = 120, w: WidthFn = plainWidth): string {
+/**
+ * Plain-text line. Aligned: the right column at the row's edge, as drawn. Unaligned (tests): the
+ * right column two spaces after the text.
+ */
+export function plainLine(s: Summary, width = 120, w: WidthFn = plainWidth, aligned = true): string {
   const l = layout(s, width, w);
-  return `${l.verb}${l.target}${l.gap}${l.result.map((r) => r.text).join("")}`.trimEnd();
+  const text = `${l.verb}${l.target}${l.gap}${l.result.map((r) => r.text).join("")}`;
+  return aligned ? `${text}${l.pad}${l.duration}${l.mark}` : `${text.trimEnd()}  ${l.duration}${l.mark}`;
 }

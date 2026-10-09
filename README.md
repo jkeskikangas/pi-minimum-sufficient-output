@@ -13,19 +13,24 @@ pi install npm:pi-minimum-sufficient-output
 Or in `~/.pi/agent/settings.json`: `"packages": ["npm:pi-minimum-sufficient-output"]`.
 
 ```
-read   src/foo.sh:40–70
-read   lib/util.ts  (214 lines)
-edit   bar.sh  +15 −20
-edit   3 files  +42 −8
-write  new.ts  (120 lines)
-run    pnpm typecheck  ✗ exit 2 · src/a.ts(3,1): error TS2304: Cannot find name 'x'.
-find   rg "x" src  12 hits
-web    search "q" ×4  · 24 results 6.2s
-spawn  backend · claude-opus·high  ✓ root.3
-send   → parent  ✓
+  read   src/foo.sh:40–70                                    ✓
+  read   lib/util.ts  (214 lines)                             ✓
+  edit   bar.sh  +15 −20                                      ✓
+  edit   3 files  +42 −8                                      ✓
+  write  new.ts  (120 lines)                                  ✓
+  run    pnpm typecheck  exit 2 · src/a.ts(3,1): error TS2304… ✗
+  find   rg "x" src  12 hits                                  ✓
+  web    search "q" ×4  24 results                       6.2s ✓
+  spawn  backend · claude-opus·high  root.3                   ✓
+  send   → parent                                             ✓
+
+  1m 33s · model 1m 20s ×7 · tools 13.0s ×12
 ```
 
-Successful lines are dimmed (with `+` green and `−` red), failures red, running calls yellow.
+Rows are colored by role, not dimmed as a whole: verb muted, target in text color, result muted
+(`+` green, `−` red, a failure's text red), duration muted. The status mark (`✓` green, `✗` red, `◌`
+yellow while running) and the duration are right-aligned, at most 100 columns from the row start, and rows are
+indented two columns so they read as steps under the model's text.
 Press ctrl+o (or click a row) to expand: every row then shows the tool's own full view, exactly as
 without this package.
 
@@ -49,7 +54,8 @@ tool is registered or changed, so the model receives exactly what it did before.
 | anything else | tool name, first meaningful argument, `✓`/`✗` |
 
 Rules: file contents, diffs and command output are never shown collapsed, except one line on a
-failure. Durations appear where pi recorded one (always for `bash`, from 1s for other tools). Paths
+failure. Durations appear for successful calls that took at least 1s. A leading `cd <dir> &&` is
+left out of `run` lines (expand to see the full command). Paths
 are relative to the working directory, with your home as `~`. Lines are cut to the terminal width,
 the target first so the result stays visible. If a tool's arguments or result have an unexpected
 shape, the row falls back to the generic line; a renderer error falls back to the tool's own view.
@@ -60,6 +66,14 @@ pi draws a blank line above every tool row. For collapsed rows this package remo
 of tool calls is a block of consecutive lines. That is a small, guarded patch of pi's
 `ToolExecutionComponent.render`; set `PI_MSO_TRANSCRIPT_SPACING=1` to keep pi's spacing. Set
 `PI_MSO_TRANSCRIPT=0` to disable the transcript part without uninstalling it.
+
+## Run timing
+
+After each agent run, one line shows where the time went: total, model calls (request start to
+the end of the reply, with the call count) and tools (wall time with at least one tool running, so
+parallel calls count once). It is a custom session entry (`mso-timing`), kept in the session and
+never sent to the model. Set `PI_MSO_TIMING=0` to stop recording it; lines already recorded still
+show.
 
 ## Response policy
 

@@ -50,15 +50,23 @@ function slotOf(toolName: string, ctx: Ctx): Slot {
   return slot;
 }
 
-const SEG_COLOR: Record<string, ThemeColor> = { add: "success", del: "error", muted: "muted" };
+/** Collapsed rows are indented this much past pi's padding, so they read as steps under the text above. */
+export const INDENT = 2;
 
-/** Color a laid-out summary: success dim (counts colored), failure red, running yellow. */
+const SEG_COLOR: Record<string, ThemeColor> = { add: "success", del: "error", muted: "muted" };
+const MARK_COLOR: Record<Summary["status"], ThemeColor> = { ok: "success", error: "error", running: "warning" };
+
+/**
+ * Color a laid-out summary by role, not by dimming the whole row: verb muted, target in text color,
+ * result and duration muted (diff counts green/red, failures red), status mark green/red/yellow.
+ */
 export function paint(summary: Summary, width: number, theme: Theme | undefined): string {
   const l = layout(summary, width, visibleWidth);
   const fg = (c: ThemeColor, s: string) => (theme && s ? theme.fg(c, s) : s);
-  const base: ThemeColor = summary.status === "error" ? "error" : summary.status === "running" ? "warning" : "dim";
-  const seg = (s: Seg) => fg(summary.status === "ok" && s.style ? SEG_COLOR[s.style] ?? base : base, s.text);
-  return fg(base, l.verb) + fg(base, l.target) + l.gap + l.result.map(seg).join("");
+  const seg = (s: Seg) => fg(summary.status === "error" ? "error" : s.style ? SEG_COLOR[s.style] ?? "muted" : "muted", s.text);
+  return (
+    fg("muted", l.verb) + fg("text", l.target) + l.gap + l.result.map(seg).join("") + l.pad + fg("muted", l.duration) + fg(MARK_COLOR[summary.status], l.mark)
+  );
 }
 
 function plainFallback(slot: Slot): string {
@@ -75,7 +83,7 @@ class Line implements Component {
     const slot = this.slot;
     slot.lineSaw = slot.result;
     slot.lineDrawn = true;
-    const pad = " ".repeat(Math.min(slot.outputPad, Math.max(0, width - 1)));
+    const pad = " ".repeat(Math.min(slot.outputPad + INDENT, Math.max(0, width - 1)));
     let text: string;
     try {
       text = paint(summarize(slot.toolName, slot.args, slot.result, slot.info), width - pad.length, slot.theme);
@@ -101,8 +109,8 @@ class ResultStub implements Component {
     if (slot.lineDrawn && slot.lineSaw === slot.result) return [];
     try {
       const s = summarize(slot.toolName, slot.args, slot.result, slot.info);
-      if (!s.result.length) return [];
-      const pad = " ".repeat(Math.min(slot.outputPad + VERB_WIDTH + 1, Math.max(0, width - 1)));
+      if (s.status === "running") return [];
+      const pad = " ".repeat(Math.min(slot.outputPad + INDENT + VERB_WIDTH + 1, Math.max(0, width - 1)));
       return [truncateToWidth(pad + paint({ ...s, verb: "", target: "" }, width - pad.length, slot.theme).trimStart(), width)];
     } catch {
       return [];
