@@ -18,11 +18,9 @@ read   lib/util.ts  (214 lines)
 edit   bar.sh  +15 −20
 edit   3 files  +42 −8
 write  new.ts  (120 lines)
-run    mix test test/a_test.exs  ✓ 1.4s
 run    pnpm typecheck  ✗ exit 2 · src/a.ts(3,1): error TS2304: Cannot find name 'x'.
 find   rg "x" src  12 hits
 web    search "q" ×4  · 24 results 6.2s
-mcp    linear.get_issue TRE-184  ✓
 spawn  backend · claude-opus·high  ✓ root.3
 send   → parent  ✓
 ```
