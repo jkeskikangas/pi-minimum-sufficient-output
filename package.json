@@ -1,7 +1,7 @@
 {
   "name": "pi-minimum-sufficient-output",
-  "version": "0.1.0",
-  "description": "Minimum sufficient output for pi's transcript: one line per tool call, full output on ctrl+o.",
+  "version": "0.2.0",
+  "description": "Minimum sufficient output for pi: one line per tool call in the transcript (full output on ctrl+o), and a response-calibration policy in the system prompt.",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -33,6 +33,7 @@
   "files": [
     "index.ts",
     "src",
+    "policy",
     "README.md",
     "LICENSE"
   ],

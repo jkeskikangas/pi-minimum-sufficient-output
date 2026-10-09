@@ -1,6 +1,10 @@
 # pi-minimum-sufficient-output
 
-Minimum sufficient output for pi's transcript: one line per tool call, full output on ctrl+o.
+Minimum sufficient output for pi, in two parts:
+
+- **Transcript:** one line per tool call, full output on ctrl+o.
+- **Responses:** a minimum-sufficient-output policy added to pi's system prompt, so the model
+  answers first and leaves out what the reader does not need (see [Response policy](#response-policy)).
 
 ```
 pi install npm:pi-minimum-sufficient-output
@@ -57,7 +61,22 @@ shape, the row falls back to the generic line; a renderer error falls back to th
 pi draws a blank line above every tool row. For collapsed rows this package removes it, so a run
 of tool calls is a block of consecutive lines. That is a small, guarded patch of pi's
 `ToolExecutionComponent.render`; set `PI_MSO_TRANSCRIPT_SPACING=1` to keep pi's spacing. Set
-`PI_MSO_TRANSCRIPT=0` to disable the package without uninstalling it.
+`PI_MSO_TRANSCRIPT=0` to disable the transcript part without uninstalling it.
+
+## Response policy
+
+The package ships [`policy/mso-policy.md`](policy/mso-policy.md) and adds it to pi's system
+prompt as an `<mso_policy>` section on every `before_agent_start`. It changes a section of pi's
+structured prompt (`systemPromptOptions.sections`) rather than replacing the whole prompt, so pi
+records it as a normal prompt delta.
+
+No duplicates: if the system prompt already contains the policy's managed-block marker
+(`BEGIN MANAGED BLOCK: mso-policy`) — for example because your `~/.pi/agent/APPEND_SYSTEM.md` or
+a project `.pi/APPEND_SYSTEM.md` includes it — the section is not added. Your copy wins, whatever
+its version.
+
+Set `PI_MSO_POLICY=0` to turn the policy off. The transcript renderer is unaffected; likewise
+`PI_MSO_TRANSCRIPT=0` turns off only the transcript part.
 
 ## Development
 
@@ -69,7 +88,8 @@ pi -e ./index.ts    # try it without installing
 ```
 
 The formatting is pure (`src/format.ts`, no pi imports) and unit-tested; `src/render.ts` turns it
-into pi components and handles expansion.
+into pi components and handles expansion. `src/policy.ts` decides whether to add the policy
+section (pure, tested in `test/policy.test.ts`).
 
 ## License
 
